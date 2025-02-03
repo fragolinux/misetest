@@ -2,6 +2,11 @@
 FROM buildpack-deps:bookworm-curl
 
 # ------------------------------------------------------------------------------
+# Definizione della versione di sysdig (modifica qui per aggiornare la versione)
+# ------------------------------------------------------------------------------
+ARG SYSDIG_VERSION=0.39.0
+
+# ------------------------------------------------------------------------------
 # Installazione di "mise" tramite il metodo consigliato (multipiattaforma)
 # ------------------------------------------------------------------------------
 RUN curl -f -sSL https://mise.run | sh
@@ -15,22 +20,26 @@ ENV PATH="/root/.local/bin:$PATH"
 COPY .tool-versions /root/.tool-versions
 
 # ------------------------------------------------------------------------------
-# Installazione degli strumenti (tranne sysdig) tramite un'unica chiamata a "mise install"
+# Installazione degli strumenti (tranne sysdig) tramite una singola chiamata a "mise install"
 # ------------------------------------------------------------------------------
 RUN mise install
 
 # ------------------------------------------------------------------------------
-# Installazione di sysdig (non gestito tramite mise)
-# Viene installato solo su architetture x86_64; per altre architetture l'installazione viene saltata.
+# Installazione di sysdig tramite i pacchetti .deb, in base all'architettura:
+#   - x86_64: https://github.com/draios/sysdig/releases/download/${SYSDIG_VERSION}/sysdig-${SYSDIG_VERSION}-x86_64.deb
+#   - aarch64: https://github.com/draios/sysdig/releases/download/${SYSDIG_VERSION}/sysdig-${SYSDIG_VERSION}-aarch64.deb
+#
+# Viene scaricato il file .deb, installato con dpkg e successivamente vengono risolte
+# eventuali dipendenze mancanti.
 # ------------------------------------------------------------------------------
 RUN if [ "$(uname -m)" = "x86_64" ]; then \
-      apt-get update && apt-get install -y gnupg lsb-release && \
-      curl -f -sSL https://s3.amazonaws.com/download.draios.com/DRAIOS-GPG-KEY.public | apt-key add - && \
-      echo "deb https://download.draios.com/stable/deb stable-$(lsb_release -cs) main" > /etc/apt/sources.list.d/draios.list && \
-      apt-get update && apt-get install -y sysdig=1.19.2; \
+      curl -f -sSL https://github.com/draios/sysdig/releases/download/${SYSDIG_VERSION}/sysdig-${SYSDIG_VERSION}-x86_64.deb -o /tmp/sysdig.deb; \
+    elif [ "$(uname -m)" = "aarch64" ]; then \
+      curl -f -sSL https://github.com/draios/sysdig/releases/download/${SYSDIG_VERSION}/sysdig-${SYSDIG_VERSION}-aarch64.deb -o /tmp/sysdig.deb; \
     else \
-      echo "Installazione di sysdig saltata per architetture non x86_64"; \
-    fi
+      echo "Architettura non supportata per sysdig: $(uname -m)" && exit 1; \
+    fi && \
+    apt-get update && dpkg -i /tmp/sysdig.deb && apt-get install -f -y && rm /tmp/sysdig.deb
 
 # Comando di default
 CMD ["bash"]
