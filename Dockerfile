@@ -1,13 +1,20 @@
 # Usa come base l'immagine buildpack-deps con Bookworm e curl
 FROM buildpack-deps:bookworm-curl
 
+# Definisci l'argomento TARGETARCH (impostato automaticamente da buildx)
+ARG TARGETARCH
+
 # ------------------------------------------------------------------------------
-# Installazione di "mise"
-# Modifica l'URL e la versione in base alla reale distribuzione di "mise"
+# Installazione di "mise" in base all'architettura
+# Modifica l'URL e la versione se necessario.
 # ------------------------------------------------------------------------------
-RUN curl -sSL https://github.com/mise/mise/releases/download/v0.1.0/mise-linux-amd64 \
-    -o /usr/local/bin/mise && \
-    chmod +x /usr/local/bin/mise
+RUN if [ "$TARGETARCH" = "arm64" ]; then \
+      curl -sSL https://github.com/mise/mise/releases/download/v0.1.0/mise-linux-arm64 -o /usr/local/bin/mise; \
+    elif [ "$TARGETARCH" = "amd64" ]; then \
+      curl -sSL https://github.com/mise/mise/releases/download/v0.1.0/mise-linux-amd64 -o /usr/local/bin/mise; \
+    else \
+      echo "Architettura non supportata: $TARGETARCH" && exit 1; \
+    fi && chmod +x /usr/local/bin/mise
 
 # ------------------------------------------------------------------------------
 # Copia del file .tool-versions nella directory di lavoro
