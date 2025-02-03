@@ -1,134 +1,118 @@
-# Usa come base l'immagine buildpack-deps con Bookworm e curl
+# Base image
 FROM buildpack-deps:bookworm-curl
 
-# ------------------------------------------------------------------------------
-# Definizione della versione di sysdig (modifica questo ARG per aggiornare la versione)
-# ------------------------------------------------------------------------------
+# --- Build arguments ---
 ARG SYSDIG_VERSION=0.39.0
 
 # ------------------------------------------------------------------------------
-# Installazione di "mise" tramite il metodo consigliato (multipiattaforma)
+# (Eseguito come root) Installa Docker tramite i pacchetti ufficiali Debian:
+# - Installa apt-transport-https, ca-certificates, curl, gnupg
+# - Aggiunge il repository ufficiale di Docker per Debian Bookworm
+# - Installa docker-ce, docker-ce-cli, containerd.io, docker-buildx-plugin e docker-compose-plugin
+# - Pulisce la cache apt
 # ------------------------------------------------------------------------------
+RUN set -eux; \
+    apt-get update && \
+    apt-get install -y apt-transport-https ca-certificates curl gnupg && \
+    curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /usr/share/keyrings/docker.gpg && \
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker.gpg] https://download.docker.com/linux/debian bookworm stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null && \
+    apt-get update && \
+    apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin && \
+    rm -rf /var/lib/apt/lists/*
+
+# ------------------------------------------------------------------------------
+# (Eseguito come root) Installa sysdig tramite i pacchetti .deb (con dkms) e pulisce la cache
+# ------------------------------------------------------------------------------
+RUN set -eux; \
+    if [ "$(uname -m)" = "x86_64" ]; then \
+       echo "Installing sysdig for x86_64"; \
+       curl -f -sSL https://github.com/draios/sysdig/releases/download/${SYSDIG_VERSION}/sysdig-${SYSDIG_VERSION}-x86_64.deb -o /tmp/sysdig.deb; \
+       apt-get update && apt-get install -y dkms; \
+       dpkg -i /tmp/sysdig.deb || true; \
+       apt-get install -f -y; \
+       rm -f /tmp/sysdig.deb; \
+    elif [ "$(uname -m)" = "aarch64" ]; then \
+       echo "Attempting sysdig installation for arm64"; \
+       curl -f -sSL https://github.com/draios/sysdig/releases/download/${SYSDIG_VERSION}/sysdig-${SYSDIG_VERSION}-aarch64.deb -o /tmp/sysdig.deb; \
+       apt-get update && apt-get install -y dkms; \
+       dpkg -i /tmp/sysdig.deb || true; \
+       apt-get install -f -y; \
+       rm -f /tmp/sysdig.deb; \
+       echo "Sysdig installation for arm64 failed, continuing"; \
+    else \
+       echo "Architecture not supported for sysdig: $(uname -m)"; \
+       exit 1; \
+    fi; \
+    rm -rf /var/lib/apt/lists/*
+
+# ------------------------------------------------------------------------------
+# (Eseguito come root) Installa zsh e crea l'utente non privilegiato "vscode"
+# ------------------------------------------------------------------------------
+RUN set -eux; \
+    apt-get update && apt-get install -y zsh && \
+    useradd -m -s /usr/bin/zsh vscode && \
+    chown -R vscode:vscode /home/vscode && \
+    rm -rf /var/lib/apt/lists/*
+
+# Copia il file .tool-versions nella home di vscode e ne cambia il proprietario
+COPY .tool-versions /home/vscode/.tool-versions
+RUN chown vscode:vscode /home/vscode/.tool-versions
+
+# ------------------------------------------------------------------------------
+# (Sempre come root) Crea uno script di test che mostra le versioni dei tool
+# ------------------------------------------------------------------------------
+RUN echo '#!/usr/bin/env zsh' > /home/vscode/tool-versions.sh && \
+    echo 'echo "################"' >> /home/vscode/tool-versions.sh && \
+    echo 'echo "Testing yq..." && yq --version' >> /home/vscode/tool-versions.sh && \
+    echo 'echo "################"' >> /home/vscode/tool-versions.sh && \
+    echo 'echo "Testing kubectl..." && kubectl version --client' >> /home/vscode/tool-versions.sh && \
+    echo 'echo "################"' >> /home/vscode/tool-versions.sh && \
+    echo 'echo "Testing kubectx..." && kubectx --version' >> /home/vscode/tool-versions.sh && \
+    echo 'echo "################"' >> /home/vscode/tool-versions.sh && \
+    echo 'echo "Testing k9s..." && k9s version' >> /home/vscode/tool-versions.sh && \
+    echo 'echo "################"' >> /home/vscode/tool-versions.sh && \
+    echo 'echo "Testing sops..." && sops --version' >> /home/vscode/tool-versions.sh && \
+    echo 'echo "################"' >> /home/vscode/tool-versions.sh && \
+    echo 'echo "Testing eksctl..." && eksctl version' >> /home/vscode/tool-versions.sh && \
+    echo 'echo "################"' >> /home/vscode/tool-versions.sh && \
+    echo 'echo "Testing aws-cli..." && aws --version' >> /home/vscode/tool-versions.sh && \
+    echo 'echo "################"' >> /home/vscode/tool-versions.sh && \
+    echo 'echo "Testing Docker CLI..." && docker --version' >> /home/vscode/tool-versions.sh && \
+    echo 'echo "################"' >> /home/vscode/tool-versions.sh && \
+    echo 'echo "Testing Docker Compose..." && docker compose version' >> /home/vscode/tool-versions.sh && \
+    echo 'echo "################"' >> /home/vscode/tool-versions.sh && \
+    echo 'echo "Testing python..." && python --version' >> /home/vscode/tool-versions.sh && \
+    chmod +x /home/vscode/tool-versions.sh
+
+# ------------------------------------------------------------------------------
+# Ora passa all'utente vscode per le installazioni "user-land"
+# ------------------------------------------------------------------------------
+# ...
+USER vscode
+WORKDIR /home/vscode
+
+# --- Installazione di mise (come utente vscode) ---
 RUN curl -f -sSL https://mise.run | sh
 
-# Aggiungi la directory in cui mise viene installato (default: ~/.local/bin) al PATH
-ENV PATH="/root/.local/bin:$PATH"
+# Assicurati che ~/.local/bin sia nel PATH per vscode
+ENV PATH="/home/vscode/.local/bin:$PATH"
 
-# Aggiungi il comando per attivare mise nelle shell interattive al file .bashrc
-RUN echo 'eval "$(~/.local/bin/mise activate bash)"' >> /root/.bashrc
+# Aggiungi la riga per attivare mise in modalità zsh nel file .zshrc
+RUN echo 'eval "$(~/.local/bin/mise activate zsh)"' >> /home/vscode/.zshrc
 
-# ------------------------------------------------------------------------------
-# Aggiungi uno script di test in .bashrc da eseguire al login interattivo.
-# Lo script stampa, prima del prompt, un blocco per ogni tool, delimitato da linee ################.
-# ------------------------------------------------------------------------------
-RUN echo 'if [[ $- == *i* ]]; then' >> /root/.bashrc && \
-    echo '  echo "################"' >> /root/.bashrc && \
-    echo '  echo "Testing yq..."' >> /root/.bashrc && \
-    echo '  yq --version' >> /root/.bashrc && \
-    echo '  echo "################"' >> /root/.bashrc && \
-    echo '  echo "Testing kubectl..."' >> /root/.bashrc && \
-    echo '  kubectl version --client' >> /root/.bashrc && \
-    echo '  echo "################"' >> /root/.bashrc && \
-    echo '  echo "Testing kubectx..."' >> /root/.bashrc && \
-    echo '  kubectx --version' >> /root/.bashrc && \
-    echo '  echo "################"' >> /root/.bashrc && \
-    echo '  echo "Testing k9s..."' >> /root/.bashrc && \
-    echo '  k9s version' >> /root/.bashrc && \
-    echo '  echo "################"' >> /root/.bashrc && \
-    echo '  echo "Testing sops..."' >> /root/.bashrc && \
-    echo '  sops --version' >> /root/.bashrc && \
-    echo '  echo "################"' >> /root/.bashrc && \
-    echo '  echo "Testing eksctl..."' >> /root/.bashrc && \
-    echo '  eksctl version' >> /root/.bashrc && \
-    echo '  echo "################"' >> /root/.bashrc && \
-    echo '  echo "Testing aws-cli..."' >> /root/.bashrc && \
-    echo '  aws --version' >> /root/.bashrc && \
-    echo '  echo "################"' >> /root/.bashrc && \
-    echo '  echo "Testing Docker CLI..."' >> /root/.bashrc && \
-    echo '  docker --version' >> /root/.bashrc && \
-    echo '  echo "################"' >> /root/.bashrc && \
-    echo '  echo "Testing Docker Compose..."' >> /root/.bashrc && \
-    echo '  docker-compose version' >> /root/.bashrc && \
-    echo '  echo "################"' >> /root/.bashrc && \
-    echo '  echo "Testing python..."' >> /root/.bashrc && \
-    echo '  python --version' >> /root/.bashrc && \
-    echo '  echo "################"' >> /root/.bashrc && \
-    echo 'fi' >> /root/.bashrc
-
-# ------------------------------------------------------------------------------
-# Copia del file .tool-versions in /root (così che mise lo trovi)
-# ------------------------------------------------------------------------------
-COPY .tool-versions /root/.tool-versions
-
-# Imposta la directory di lavoro a /root
-WORKDIR /root
-
-# ------------------------------------------------------------------------------
-# Installazione degli strumenti (tranne docker e docker-compose) tramite una singola chiamata a "mise install"
-# ------------------------------------------------------------------------------
+# --- Esegui "mise install" (che leggerà /home/vscode/.tool-versions) ---
 RUN mise install
 
-# ------------------------------------------------------------------------------
-# Installazione di sysdig tramite i pacchetti .deb, in base all'architettura.
-#
-# - Su x86_64:
-#     Scarica ed installa il pacchetto:
-#       https://github.com/draios/sysdig/releases/download/${SYSDIG_VERSION}/sysdig-${SYSDIG_VERSION}-x86_64.deb
-#     (installando anche il pacchetto "dkms" per soddisfare le dipendenze)
-#
-# - Su aarch64 (arm64):
-#     Viene tentata l'installazione dal pacchetto:
-#       https://github.com/draios/sysdig/releases/download/${SYSDIG_VERSION}/sysdig-${SYSDIG_VERSION}-aarch64.deb
-#     Se fallisce (ad es. per problemi nella compilazione del modulo kernel), viene stampato un avviso e il build prosegue.
-# ------------------------------------------------------------------------------
-RUN if [ "$(uname -m)" = "x86_64" ]; then \
-      echo "Installing sysdig for x86_64" && \
-      curl -f -sSL https://github.com/draios/sysdig/releases/download/${SYSDIG_VERSION}/sysdig-${SYSDIG_VERSION}-x86_64.deb -o /tmp/sysdig.deb && \
-      apt-get update && apt-get install -y dkms && \
-      dpkg -i /tmp/sysdig.deb && apt-get install -f -y && rm /tmp/sysdig.deb; \
-    elif [ "$(uname -m)" = "aarch64" ]; then \
-      echo "Attempting sysdig installation for arm64" && \
-      curl -f -sSL https://github.com/draios/sysdig/releases/download/${SYSDIG_VERSION}/sysdig-${SYSDIG_VERSION}-aarch64.deb -o /tmp/sysdig.deb && \
-      apt-get update && apt-get install -y dkms && \
-      dpkg -i /tmp/sysdig.deb && apt-get install -f -y && rm /tmp/sysdig.deb || \
-      echo "Sysdig installation for arm64 failed, continuing"; \
-    else \
-      echo "Architecture not supported for sysdig: $(uname -m)" && exit 1; \
-    fi
+# Imposta la shell di default per i RUN successivi a zsh
+SHELL ["/usr/bin/zsh", "-c"]
 
-# ------------------------------------------------------------------------------
-# Installazione di Docker CLI e Docker Compose (non gestiti da mise)
-#
-# Per Docker CLI (versione 27.5.1):
-#   - x86_64: https://download.docker.com/linux/static/stable/x86_64/docker-27.5.1.tgz
-#   - arm64:  https://download.docker.com/linux/static/stable/aarch64/docker-27.5.1.tgz
-#
-# Per Docker Compose (versione 2.32.4):
-#   - x86_64: https://github.com/docker/compose/releases/download/v2.32.4/docker-compose-linux-x86_64
-#   - arm64:  https://github.com/docker/compose/releases/download/v2.32.4/docker-compose-linux-aarch64
-# ------------------------------------------------------------------------------
-RUN if [ "$(uname -m)" = "x86_64" ]; then \
-      echo "Installing Docker CLI for x86_64" && \
-      curl -fsSL https://download.docker.com/linux/static/stable/x86_64/docker-27.5.1.tgz -o /tmp/docker.tgz && \
-      tar xzvf /tmp/docker.tgz --strip 1 -C /usr/local/bin docker/docker && \
-      rm /tmp/docker.tgz && \
-      echo "Installing Docker Compose for x86_64" && \
-      curl -fsSL https://github.com/docker/compose/releases/download/v2.32.4/docker-compose-linux-x86_64 -o /usr/local/bin/docker-compose && \
-      chmod +x /usr/local/bin/docker-compose; \
-    elif [ "$(uname -m)" = "aarch64" ]; then \
-      echo "Installing Docker CLI for arm64" && \
-      curl -fsSL https://download.docker.com/linux/static/stable/aarch64/docker-27.5.1.tgz -o /tmp/docker.tgz && \
-      tar xzvf /tmp/docker.tgz --strip 1 -C /usr/local/bin docker/docker && \
-      rm /tmp/docker.tgz && \
-      echo "Installing Docker Compose for arm64" && \
-      curl -fsSL https://github.com/docker/compose/releases/download/v2.32.4/docker-compose-linux-aarch64 -o /usr/local/bin/docker-compose && \
-      chmod +x /usr/local/bin/docker-compose; \
-    else \
-      echo "Architecture not supported for Docker CLI/Compose: $(uname -m)" && exit 1; \
-    fi
+# --- Esegui le due righe di attivazione non interattiva e poi lo script di stampa delle versioni ---
+RUN eval "$(mise activate zsh --shims)" && \
+    eval "$(mise activate zsh)" && \
+    /home/vscode/tool-versions.sh
 
-# Imposta la shell su bash per i comandi successivi (necessario per l'attivazione di mise)
-SHELL ["/bin/bash", "-c"]
+# Aggiungi nel file .zshrc il comando per eseguire lo script all'avvio della shell interattiva
+RUN echo '/home/vscode/tool-versions.sh' >> /home/vscode/.zshrc
 
-# Comando di default: avvia una shell interattiva
-CMD ["bash"]
+# Imposta la shell predefinita all'avvio del container
+CMD ["zsh"]
