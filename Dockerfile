@@ -18,6 +18,44 @@ ENV PATH="/root/.local/bin:$PATH"
 RUN echo 'eval "$(~/.local/bin/mise activate bash)"' >> /root/.bashrc
 
 # ------------------------------------------------------------------------------
+# Aggiungi uno script di test in .bashrc da eseguire al login interattivo.
+# Lo script stampa, prima del prompt, un blocco per ogni tool, delimitato da linee ################.
+# ------------------------------------------------------------------------------
+RUN echo 'if [[ $- == *i* ]]; then' >> /root/.bashrc && \
+    echo '  echo "################"' >> /root/.bashrc && \
+    echo '  echo "Testing yq..."' >> /root/.bashrc && \
+    echo '  yq --version' >> /root/.bashrc && \
+    echo '  echo "################"' >> /root/.bashrc && \
+    echo '  echo "Testing kubectl..."' >> /root/.bashrc && \
+    echo '  kubectl version --client' >> /root/.bashrc && \
+    echo '  echo "################"' >> /root/.bashrc && \
+    echo '  echo "Testing kubectx..."' >> /root/.bashrc && \
+    echo '  kubectx --version' >> /root/.bashrc && \
+    echo '  echo "################"' >> /root/.bashrc && \
+    echo '  echo "Testing k9s..."' >> /root/.bashrc && \
+    echo '  k9s version' >> /root/.bashrc && \
+    echo '  echo "################"' >> /root/.bashrc && \
+    echo '  echo "Testing sops..."' >> /root/.bashrc && \
+    echo '  sops --version' >> /root/.bashrc && \
+    echo '  echo "################"' >> /root/.bashrc && \
+    echo '  echo "Testing eksctl..."' >> /root/.bashrc && \
+    echo '  eksctl version' >> /root/.bashrc && \
+    echo '  echo "################"' >> /root/.bashrc && \
+    echo '  echo "Testing aws-cli..."' >> /root/.bashrc && \
+    echo '  aws --version' >> /root/.bashrc && \
+    echo '  echo "################"' >> /root/.bashrc && \
+    echo '  echo "Testing Docker CLI..."' >> /root/.bashrc && \
+    echo '  docker --version' >> /root/.bashrc && \
+    echo '  echo "################"' >> /root/.bashrc && \
+    echo '  echo "Testing Docker Compose..."' >> /root/.bashrc && \
+    echo '  docker-compose version' >> /root/.bashrc && \
+    echo '  echo "################"' >> /root/.bashrc && \
+    echo '  echo "Testing python..."' >> /root/.bashrc && \
+    echo '  python --version' >> /root/.bashrc && \
+    echo '  echo "################"' >> /root/.bashrc && \
+    echo 'fi' >> /root/.bashrc
+
+# ------------------------------------------------------------------------------
 # Copia del file .tool-versions in /root (così che mise lo trovi)
 # ------------------------------------------------------------------------------
 COPY .tool-versions /root/.tool-versions
@@ -31,7 +69,7 @@ WORKDIR /root
 RUN mise install
 
 # ------------------------------------------------------------------------------
-# Installazione di sysdig tramite i pacchetti .deb, in base all'architettura:
+# Installazione di sysdig tramite i pacchetti .deb, in base all'architettura.
 #
 # - Su x86_64:
 #     Scarica ed installa il pacchetto:
@@ -59,8 +97,7 @@ RUN if [ "$(uname -m)" = "x86_64" ]; then \
     fi
 
 # ------------------------------------------------------------------------------
-# Installazione di Docker CLI e Docker Compose (non disponibili tramite mise)
-# Scarica e installa il binario ufficiale in base all'architettura:
+# Installazione di Docker CLI e Docker Compose (non gestiti da mise)
 #
 # Per Docker CLI (versione 27.5.1):
 #   - x86_64: https://download.docker.com/linux/static/stable/x86_64/docker-27.5.1.tgz
@@ -90,33 +127,8 @@ RUN if [ "$(uname -m)" = "x86_64" ]; then \
       echo "Architecture not supported for Docker CLI/Compose: $(uname -m)" && exit 1; \
     fi
 
-# ------------------------------------------------------------------------------
-# Imposta la shell su bash per i comandi seguenti (necessario per i comandi di attivazione di mise)
-# ------------------------------------------------------------------------------
+# Imposta la shell su bash per i comandi successivi (necessario per l'attivazione di mise)
 SHELL ["/bin/bash", "-c"]
-
-# ------------------------------------------------------------------------------
-# Attivazione non interattiva di mise e test dei tool installati:
-#
-# 1. Attiva mise in modalità non interattiva:
-#       eval "$(mise activate bash --shims)"
-#       eval "$(mise activate bash)"
-#
-# 2. Per ogni tool, stampa un messaggio di test e richiama il comando per visualizzarne la versione.
-#    (Per kubectl viene usato "kubectl version --client" per evitare errori con flag non supportati)
-# ------------------------------------------------------------------------------
-RUN eval "$(mise activate bash --shims)" && \
-    eval "$(mise activate bash)" && \
-    echo "Testing yq..." && yq --version && \
-    echo "Testing kubectl..." && kubectl version --client && \
-    echo "Testing kubectx..." && kubectx --version && \
-    echo "Testing k9s..." && k9s version && \
-    echo "Testing sops..." && sops --version && \
-    echo "Testing eksctl..." && eksctl version && \
-    echo "Testing aws-cli..." && aws --version && \
-    echo "Testing Docker CLI..." && docker --version && \
-    echo "Testing Docker Compose..." && docker-compose version && \
-    echo "Testing python..." && python --version
 
 # Comando di default: avvia una shell interattiva
 CMD ["bash"]
