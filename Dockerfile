@@ -20,26 +20,30 @@ ENV PATH="/root/.local/bin:$PATH"
 COPY .tool-versions /root/.tool-versions
 
 # ------------------------------------------------------------------------------
-# Installazione degli strumenti (tranne sysdig) tramite un'unica chiamata a "mise install"
+# Installazione degli strumenti (tranne sysdig) tramite una singola chiamata a "mise install"
 # ------------------------------------------------------------------------------
 RUN mise install
 
 # ------------------------------------------------------------------------------
-# Installazione di sysdig tramite i pacchetti .deb, in base all'architettura:
-#   - x86_64: https://github.com/draios/sysdig/releases/download/${SYSDIG_VERSION}/sysdig-${SYSDIG_VERSION}-x86_64.deb
-#   - aarch64: https://github.com/draios/sysdig/releases/download/${SYSDIG_VERSION}/sysdig-${SYSDIG_VERSION}-aarch64.deb
+# Installazione di sysdig tramite i pacchetti .deb, in base all'architettura.
 #
-# Viene installato anche il pacchetto "dkms" per soddisfare le dipendenze di sysdig.
+# Per x86_64:
+#   - Scarica il pacchetto: https://github.com/draios/sysdig/releases/download/${SYSDIG_VERSION}/sysdig-${SYSDIG_VERSION}-x86_64.deb
+#   - Installa anche il pacchetto "dkms" per soddisfare la dipendenza.
+#
+# Per aarch64 (arm64):
+#   - La procedura di installazione viene saltata, perché il pacchetto tende a fallire la compilazione del modulo kernel.
 # ------------------------------------------------------------------------------
 RUN if [ "$(uname -m)" = "x86_64" ]; then \
-      curl -f -sSL https://github.com/draios/sysdig/releases/download/${SYSDIG_VERSION}/sysdig-${SYSDIG_VERSION}-x86_64.deb -o /tmp/sysdig.deb; \
+      echo "Installazione di sysdig per x86_64" && \
+      curl -f -sSL https://github.com/draios/sysdig/releases/download/${SYSDIG_VERSION}/sysdig-${SYSDIG_VERSION}-x86_64.deb -o /tmp/sysdig.deb && \
+      apt-get update && apt-get install -y dkms && \
+      dpkg -i /tmp/sysdig.deb && apt-get install -f -y && rm /tmp/sysdig.deb; \
     elif [ "$(uname -m)" = "aarch64" ]; then \
-      curl -f -sSL https://github.com/draios/sysdig/releases/download/${SYSDIG_VERSION}/sysdig-${SYSDIG_VERSION}-aarch64.deb -o /tmp/sysdig.deb; \
+      echo "Saltata l'installazione di sysdig su arm64 a causa di problemi noti nella compilazione del modulo kernel"; \
     else \
       echo "Architettura non supportata per sysdig: $(uname -m)" && exit 1; \
-    fi && \
-    apt-get update && apt-get install -y dkms && \
-    dpkg -i /tmp/sysdig.deb && apt-get install -f -y && rm /tmp/sysdig.deb
+    fi
 
 # Comando di default
 CMD ["bash"]
