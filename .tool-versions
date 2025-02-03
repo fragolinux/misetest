@@ -5,6 +5,7 @@ k9s            0.32.7
 sops           3.9.4
 eksctl         0.202.0
 aws-cli        2.23.9
-docker         27.5.1
-docker-compose 2.32.4
+# docker         27.5.1
+# docker-compose 2.32.4
 python         3.13.1
+# sysdig      1.19.2   # Installato separatamente (non gestito da mise)
