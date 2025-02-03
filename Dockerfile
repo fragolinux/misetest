@@ -11,7 +11,7 @@ ARG SYSDIG_VERSION=0.39.0
 # ------------------------------------------------------------------------------
 RUN curl -f -sSL https://mise.run | sh
 
-# Aggiungi la directory in cui mise è installato al PATH
+# Aggiungi la directory in cui mise è installato al PATH (la directory predefinita è ~/.local/bin)
 ENV PATH="/root/.local/bin:$PATH"
 
 # ------------------------------------------------------------------------------
@@ -20,7 +20,7 @@ ENV PATH="/root/.local/bin:$PATH"
 COPY .tool-versions /root/.tool-versions
 
 # ------------------------------------------------------------------------------
-# Installazione degli strumenti (tranne sysdig) tramite una singola chiamata a "mise install"
+# Installazione degli strumenti (tranne sysdig) tramite un'unica chiamata a "mise install"
 # ------------------------------------------------------------------------------
 RUN mise install
 
@@ -29,8 +29,7 @@ RUN mise install
 #   - x86_64: https://github.com/draios/sysdig/releases/download/${SYSDIG_VERSION}/sysdig-${SYSDIG_VERSION}-x86_64.deb
 #   - aarch64: https://github.com/draios/sysdig/releases/download/${SYSDIG_VERSION}/sysdig-${SYSDIG_VERSION}-aarch64.deb
 #
-# Viene scaricato il file .deb, installato con dpkg e successivamente vengono risolte
-# eventuali dipendenze mancanti.
+# Viene installato anche il pacchetto "dkms" per soddisfare le dipendenze di sysdig.
 # ------------------------------------------------------------------------------
 RUN if [ "$(uname -m)" = "x86_64" ]; then \
       curl -f -sSL https://github.com/draios/sysdig/releases/download/${SYSDIG_VERSION}/sysdig-${SYSDIG_VERSION}-x86_64.deb -o /tmp/sysdig.deb; \
@@ -39,7 +38,8 @@ RUN if [ "$(uname -m)" = "x86_64" ]; then \
     else \
       echo "Architettura non supportata per sysdig: $(uname -m)" && exit 1; \
     fi && \
-    apt-get update && dpkg -i /tmp/sysdig.deb && apt-get install -f -y && rm /tmp/sysdig.deb
+    apt-get update && apt-get install -y dkms && \
+    dpkg -i /tmp/sysdig.deb && apt-get install -f -y && rm /tmp/sysdig.deb
 
 # Comando di default
 CMD ["bash"]
