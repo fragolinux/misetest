@@ -1,5 +1,9 @@
 name: Build and Push Docker Image
 
+permissions:
+  packages: write
+  contents: read
+
 on:
   push:
     branches: [ main ]
@@ -9,7 +13,6 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    # Buildx supporta build parallele per più piattaforme
     steps:
       - name: Checkout repository
         uses: actions/checkout@v3
